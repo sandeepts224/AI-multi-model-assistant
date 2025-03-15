@@ -13,53 +13,70 @@ export function RecordingControls() {
     audioRecorder: null,
     screenRecorder: null
   });
-  
+
   const { toast } = useToast();
-  
+
   const handleStartRecording = useCallback(async () => {
     try {
       const newState = await startRecording();
-      
+
       let audioChunks: Blob[] = [];
       let screenChunks: Blob[] = [];
-      
+
       newState.audioRecorder!.ondataavailable = (e) => audioChunks.push(e.data);
       newState.screenRecorder!.ondataavailable = (e) => screenChunks.push(e.data);
-      
+
+      // Request data every 1 second to keep chunks small
+      newState.audioRecorder!.start(1000);
+      newState.screenRecorder!.start(1000);
+
       newState.audioRecorder!.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const screenBlob = new Blob(screenChunks, { type: 'video/webm' });
-        
-        const recording = {
-          audioBlob: await audioBlob.text(),
-          screenBlob: await screenBlob.text()
-        };
-        
         try {
+          // Process audio and screen data
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          const screenBlob = new Blob(screenChunks, { type: 'video/webm' });
+
+          // Convert blobs to base64 strings in chunks
+          const audioBase64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(audioBlob);
+          });
+
+          const screenBase64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(screenBlob);
+          });
+
+          const recording = {
+            audioBlob: audioBase64.split(',')[1], // Remove data URL prefix
+            screenBlob: screenBase64.split(',')[1]
+          };
+
           const response = await apiRequest('POST', '/api/recordings', recording);
           const data = await response.json();
-          
+
           // Trigger analysis
           await apiRequest('POST', `/api/recordings/${data.id}/analyze`);
-          
+
           toast({
             title: "Recording saved",
             description: "Your recording has been saved and is being analyzed"
           });
         } catch (error) {
+          console.error('Error saving recording:', error);
           toast({
             title: "Error saving recording",
-            description: "Failed to save and analyze the recording",
+            description: error instanceof Error ? error.message : "Failed to save and analyze the recording",
             variant: "destructive"
           });
         }
       };
-      
-      newState.audioRecorder!.start();
-      newState.screenRecorder!.start();
-      
+
       setRecordingState(newState);
     } catch (error) {
+      console.error('Error starting recording:', error);
       toast({
         title: "Recording failed",
         description: error instanceof Error ? error.message : "Failed to start recording",
@@ -67,7 +84,7 @@ export function RecordingControls() {
       });
     }
   }, [toast]);
-  
+
   const handleStopRecording = useCallback(() => {
     setRecordingState(prev => stopRecording(prev));
   }, []);
@@ -83,7 +100,7 @@ export function RecordingControls() {
       >
         <Monitor className="h-6 w-6" />
       </Button>
-      
+
       <Button
         size="lg"
         className={`w-12 h-12 p-0 rounded-full transition-colors ${
