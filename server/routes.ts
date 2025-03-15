@@ -2,14 +2,11 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertRecordingSchema } from "@shared/schema";
-import { VertexAI } from "@google-cloud/vertexai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const vertex_ai = new VertexAI({
-  project: process.env.GOOGLE_CLOUD_PROJECT || 'default-project',
-  location: 'us-central1'
-});
-
-const model = 'gemini-2.0-flash-lite';
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -28,37 +25,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const recording = await storage.getRecording(id);
-      
+
       if (!recording) {
         return res.status(404).json({ message: "Recording not found" });
       }
 
-      // Initialize Gemini
-      const generativeModel = vertex_ai.getGenerativeModel({
-        model: model,
-        generation_config: {
-          max_output_tokens: 2048,
-        },
-      });
-
       // Analyze audio and screen content
-      const [audioPromise, screenPromise] = await Promise.allSettled([
-        generativeModel.generateContent({
-          contents: [{ text: "Analyze this customer service audio recording: " + recording.audioBlob }],
+      const [audioResult, screenResult] = await Promise.allSettled([
+        model.generateContent({
+          contents: [{
+            parts: [{ text: `Analyze this customer service audio recording: ${recording.audioBlob}` }]
+          }]
         }),
-        generativeModel.generateContent({
-          contents: [{ text: "Analyze this customer service screen recording: " + recording.screenBlob }],
+        model.generateContent({
+          contents: [{
+            parts: [{ text: `Analyze this customer service screen recording: ${recording.screenBlob}` }]
+          }]
         })
       ]);
 
       const feedback = {
-        audioFeedback: audioPromise.status === 'fulfilled' ? audioPromise.value.response.text() : undefined,
-        screenFeedback: screenPromise.status === 'fulfilled' ? screenPromise.value.response.text() : undefined
+        audioFeedback: audioResult.status === 'fulfilled' ? 
+          (await audioResult.value.response.text()) : undefined,
+        screenFeedback: screenResult.status === 'fulfilled' ? 
+          (await screenResult.value.response.text()) : undefined
       };
 
       const updated = await storage.updateFeedback(id, feedback);
       res.json(updated);
     } catch (error) {
+      console.error('Analysis error:', error);
       res.status(500).json({ message: "Failed to analyze recording" });
     }
   });
