@@ -5,7 +5,11 @@ import { startRecording, stopRecording, type RecordingState } from "@/lib/record
 import { apiRequest } from "@/lib/queryClient";
 import { Monitor, Circle } from "lucide-react";
 
-export function RecordingControls() {
+interface RecordingControlsProps {
+  onFeedbackReceived: (feedback: { audioFeedback?: string; screenFeedback?: string }) => void;
+}
+
+export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps) {
   const [recordingState, setRecordingState] = useState<RecordingState>({
     isRecording: false,
     audioStream: null,
@@ -26,7 +30,7 @@ export function RecordingControls() {
       newState.audioRecorder!.ondataavailable = (e) => audioChunks.push(e.data);
       newState.screenRecorder!.ondataavailable = (e) => screenChunks.push(e.data);
 
-      // Request data every 1 second to keep chunks small
+      // Request data every second to keep chunks manageable
       newState.audioRecorder!.start(1000);
       newState.screenRecorder!.start(1000);
 
@@ -36,7 +40,7 @@ export function RecordingControls() {
           const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
           const screenBlob = new Blob(screenChunks, { type: 'video/webm' });
 
-          // Convert blobs to base64 strings in chunks
+          // Convert blobs to base64 strings
           const audioBase64 = await new Promise<string>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
@@ -49,26 +53,24 @@ export function RecordingControls() {
             reader.readAsDataURL(screenBlob);
           });
 
-          const recording = {
-            audioBlob: audioBase64.split(',')[1], // Remove data URL prefix
+          // Send directly for analysis
+          const response = await apiRequest('POST', '/api/analyze', {
+            audioBlob: audioBase64.split(',')[1],
             screenBlob: screenBase64.split(',')[1]
-          };
+          });
 
-          const response = await apiRequest('POST', '/api/recordings', recording);
-          const data = await response.json();
-
-          // Trigger analysis
-          await apiRequest('POST', `/api/recordings/${data.id}/analyze`);
+          const feedback = await response.json();
+          onFeedbackReceived(feedback);
 
           toast({
-            title: "Recording saved",
-            description: "Your recording has been saved and is being analyzed"
+            title: "Analysis complete",
+            description: "AI feedback is ready"
           });
         } catch (error) {
-          console.error('Error saving recording:', error);
+          console.error('Error analyzing recording:', error);
           toast({
-            title: "Error saving recording",
-            description: error instanceof Error ? error.message : "Failed to save and analyze the recording",
+            title: "Analysis failed",
+            description: error instanceof Error ? error.message : "Failed to analyze the recording",
             variant: "destructive"
           });
         }
@@ -83,7 +85,7 @@ export function RecordingControls() {
         variant: "destructive"
       });
     }
-  }, [toast]);
+  }, [toast, onFeedbackReceived]);
 
   const handleStopRecording = useCallback(() => {
     setRecordingState(prev => stopRecording(prev));
