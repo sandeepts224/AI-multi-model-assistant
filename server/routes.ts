@@ -1,10 +1,13 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleAIFileManager, FileState } from "@google/generative-ai/server";
 
 // Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+const API_KEY = process.env.GOOGLE_API_KEY || '';
+const genAI = new GoogleGenerativeAI(API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const fileManager = new GoogleAIFileManager(API_KEY);
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -13,18 +16,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { audioBlob, screenBlob } = req.body;
 
+      // Convert base64 to Buffer for audio
+      const audioBuffer = Buffer.from(audioBlob, 'base64');
+
+      // Upload audio file
+      const uploadResult = await fileManager.uploadFile(audioBuffer, {
+        mimeType: "audio/webm",
+        displayName: "customer_service_audio.webm",
+      });
+
+      // Wait for processing
+      let file = await fileManager.getFile(uploadResult.file.name);
+      while (file.state === FileState.PROCESSING) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        file = await fileManager.getFile(uploadResult.file.name);
+      }
+
+      if (file.state === FileState.FAILED) {
+        throw new Error("Audio processing failed");
+      }
+
       // Analyze audio and screen content in parallel
       const [audioResult, screenResult] = await Promise.allSettled([
-        model.generateContent({
-          contents: [{
-            parts: [{ text: `Analyze this customer service audio recording for tone, clarity, and professionalism: ${audioBlob}` }]
-          }]
-        }),
-        model.generateContent({
-          contents: [{
-            parts: [{ text: `Analyze this customer service screen recording for UI navigation and visual presentation: ${screenBlob}` }]
-          }]
-        })
+        model.generateContent([
+          "Analyze this customer service audio recording for tone, clarity, and professionalism.",
+          {
+            fileData: {
+              fileUri: uploadResult.file.uri,
+              mimeType: uploadResult.file.mimeType,
+            },
+          },
+        ]),
+        model.generateContent([
+          "Analyze this customer service screen recording for UI navigation and visual presentation.",
+          screenBlob
+        ])
       ]);
 
       const feedback = {
