@@ -6,7 +6,7 @@ import { GoogleAIFileManager, FileState } from "@google/generative-ai/server";
 // Initialize Gemini
 const API_KEY = process.env.GOOGLE_API_KEY || '';
 const genAI = new GoogleGenerativeAI(API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
 const fileManager = new GoogleAIFileManager(API_KEY);
 
 // Function definition for screen analysis
