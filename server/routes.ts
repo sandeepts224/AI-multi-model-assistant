@@ -9,6 +9,32 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 const fileManager = new GoogleAIFileManager(API_KEY);
 
+// Function definition for screen analysis
+const screenAnalysisFunctions = [
+  {
+    name: "analyzeScreenRecording",
+    description: "Analyzes a screen recording for UI navigation and visual elements",
+    parameters: {
+      type: "object",
+      properties: {
+        navigationFlow: {
+          type: "string",
+          description: "Description of the UI navigation flow"
+        },
+        visualElements: {
+          type: "string",
+          description: "Analysis of visual elements and their effectiveness"
+        },
+        userExperience: {
+          type: "string",
+          description: "Overall user experience assessment"
+        }
+      },
+      required: ["navigationFlow", "visualElements", "userExperience"]
+    }
+  }
+];
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
@@ -36,10 +62,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("Audio processing failed");
       }
 
+      // Enhanced audio analysis prompt
+      const audioPrompt = `
+        Analyze this customer service audio recording. Focus on:
+        1. Identify any specific queries or questions asked
+        2. Evaluate tone and professionalism
+        3. Check for clarity and articulation
+        4. Note any action items or follow-ups mentioned
+
+        Provide a structured analysis addressing these points.
+      `;
+
       // Analyze audio and screen content in parallel
       const [audioResult, screenResult] = await Promise.allSettled([
         model.generateContent([
-          "Analyze this customer service audio recording for tone, clarity, and professionalism.",
+          audioPrompt,
           {
             fileData: {
               fileUri: uploadResult.file.uri,
@@ -48,19 +85,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
         ]),
         model.generateContent([
-          "Analyze this customer service screen recording for UI navigation and visual presentation.",
+          "Analyze this screen recording focusing on UI navigation patterns, visual clarity, and user experience. Use the analyzeScreenRecording function to structure your response.",
           screenBlob
-        ])
+        ], {
+          tools: [{ functionDeclarations: screenAnalysisFunctions }]
+        })
       ]);
 
-      const feedback = {
-        audioFeedback: audioResult.status === 'fulfilled' ? 
-          (await audioResult.value.response.text()) : "Failed to analyze audio",
-        screenFeedback: screenResult.status === 'fulfilled' ? 
-          (await screenResult.value.response.text()) : "Failed to analyze screen recording"
-      };
+      // Process audio feedback
+      let audioFeedback = "Failed to analyze audio";
+      if (audioResult.status === 'fulfilled') {
+        audioFeedback = await audioResult.value.response.text();
+      }
 
-      res.json(feedback);
+      // Process screen feedback with function calling
+      let screenFeedback = "Failed to analyze screen recording";
+      if (screenResult.status === 'fulfilled') {
+        const response = await screenResult.value.response.text();
+        try {
+          const parsedResponse = JSON.parse(response);
+          screenFeedback = `
+Navigation Flow: ${parsedResponse.navigationFlow}
+
+Visual Elements: ${parsedResponse.visualElements}
+
+User Experience: ${parsedResponse.userExperience}
+          `.trim();
+        } catch (e) {
+          screenFeedback = response;
+        }
+      }
+
+      res.json({
+        audioFeedback,
+        screenFeedback
+      });
     } catch (error) {
       console.error('Analysis error:', error);
       res.status(500).json({ 
