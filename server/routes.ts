@@ -35,6 +35,15 @@ const screenAnalysisFunctions = [
   }
 ];
 
+async function waitForFileProcessing(file) {
+  while (file.state === FileState.PROCESSING) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    file = await fileManager.getFile(file.name);
+  }
+  return file;
+}
+
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
@@ -45,80 +54,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Convert base64 to Buffer for audio
       const audioBuffer = Buffer.from(audioBlob, 'base64');
 
-      // Upload audio file
-      const uploadResult = await fileManager.uploadFile(audioBuffer, {
-        mimeType: "audio/webm",
-        displayName: "customer_service_audio.webm",
+      // Upload and process audio file
+      const audioFile = await fileManager.uploadFile(audioBuffer, {
+        mimeType: "audio/webm"
       });
+      const processedAudioFile = await waitForFileProcessing(audioFile.file);
 
-      // Wait for processing
-      let file = await fileManager.getFile(uploadResult.file.name);
-      while (file.state === FileState.PROCESSING) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        file = await fileManager.getFile(uploadResult.file.name);
-      }
-
-      if (file.state === FileState.FAILED) {
+      if (processedAudioFile.state === FileState.FAILED) {
         throw new Error("Audio processing failed");
       }
 
-      // Enhanced audio analysis prompt
-      const audioPrompt = `
-        Analyze this customer service audio recording. Focus on:
-        1. Identify any specific queries or questions asked
-        2. Evaluate tone and professionalism
-        3. Check for clarity and articulation
-        4. Note any action items or follow-ups mentioned
+      // Upload and process screen recording
+      const screenBuffer = Buffer.from(screenBlob, 'base64');
+      const screenFile = await fileManager.uploadFile(screenBuffer, {
+        mimeType: "video/webm"
+      });
+      const processedScreenFile = await waitForFileProcessing(screenFile.file);
 
-        Provide a structured analysis addressing these points.
-      `;
+      if (processedScreenFile.state === FileState.FAILED) {
+        throw new Error("Screen recording processing failed");
+      }
 
-      // Analyze audio and screen content in parallel
-      const [audioResult, screenResult] = await Promise.allSettled([
-        model.generateContent([
-          audioPrompt,
-          {
-            fileData: {
-              fileUri: uploadResult.file.uri,
-              mimeType: uploadResult.file.mimeType,
-            },
-          },
-        ]),
-        model.generateContent([
-          "Analyze this screen recording focusing on UI navigation patterns, visual clarity, and user experience. Use the analyzeScreenRecording function to structure your response.",
-          screenBlob
-        ], {
-          tools: [{ functionDeclarations: screenAnalysisFunctions }]
-        })
+      // Combined analysis with both audio and video
+      const result = await model.generateContent([
+        "You are a helpful assistant analyzing both audio and screen recording. First listen to the audio query and then analyze the screen recording to provide relevant help.",
+        {
+          fileData: {
+            fileUri: processedAudioFile.uri,
+            mimeType: processedAudioFile.mimeType
+          }
+        },
+        {
+          fileData: {
+            fileUri: processedScreenFile.uri,
+            mimeType: processedScreenFile.mimeType
+          }
+        }
       ]);
 
-      // Process audio feedback
-      let audioFeedback = "Failed to analyze audio";
-      if (audioResult.status === 'fulfilled') {
-        audioFeedback = await audioResult.value.response.text();
-      }
-
-      // Process screen feedback with function calling
-      let screenFeedback = "Failed to analyze screen recording";
-      if (screenResult.status === 'fulfilled') {
-        const response = await screenResult.value.response.text();
-        try {
-          const parsedResponse = JSON.parse(response);
-          screenFeedback = `
-Navigation Flow: ${parsedResponse.navigationFlow}
-
-Visual Elements: ${parsedResponse.visualElements}
-
-User Experience: ${parsedResponse.userExperience}
-          `.trim();
-        } catch (e) {
-          screenFeedback = response;
-        }
-      }
+      const response = await result.response;
+      const combinedAnalysis = response.text();
 
       res.json({
-        audioFeedback,
-        screenFeedback
+        combinedAnalysis
       });
     } catch (error) {
       console.error('Analysis error:', error);
