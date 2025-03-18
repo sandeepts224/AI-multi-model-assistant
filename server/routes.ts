@@ -35,14 +35,13 @@ const screenAnalysisFunctions = [
   }
 ];
 
-async function waitForFileProcessing(file) {
+async function waitForFileProcessing(file: any) {
   while (file.state === FileState.PROCESSING) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     file = await fileManager.getFile(file.name);
   }
   return file;
 }
-
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -77,7 +76,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Combined analysis with both audio and video
       const result = await model.generateContent([
-        "You are a helpful assistant analyzing both audio and screen recording. First listen to the audio query and then analyze the screen recording to provide relevant help.",
+        "You are a helpful assistant analyzing a conversation from both audio and screen recording. First, analyze the audio to understand the user's query. Then, analyze the screen recording to identify relevant UI elements and actions.  Provide a combined analysis summarizing the user's intent and the corresponding on-screen activity.",
         {
           fileData: {
             fileUri: processedAudioFile.uri,
