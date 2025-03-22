@@ -2,31 +2,23 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface FeedbackDisplayProps {
-  audioFeedback?: string;
-  screenFeedback?: string;
+  combinedAnalysis?: string;
 }
 
-export function FeedbackDisplay({ audioFeedback, screenFeedback }: FeedbackDisplayProps) {
+export function FeedbackDisplay({ combinedAnalysis }: FeedbackDisplayProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
+    <div className="w-full max-w-4xl">
       <Card>
         <CardHeader>
-          <CardTitle>Audio Analysis</CardTitle>
+          <CardTitle>AI Assistant Analysis</CardTitle>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[200px] w-full rounded-md border p-4">
-            {audioFeedback || "No audio feedback available yet"}
-          </ScrollArea>
-        </CardContent>
-      </Card>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>Screen Analysis</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ScrollArea className="h-[200px] w-full rounded-md border p-4">
-            {screenFeedback || "No screen feedback available yet"}
+          <ScrollArea className="h-[400px] w-full rounded-md border p-4">
+            {combinedAnalysis ? (
+              <div className="whitespace-pre-wrap">{combinedAnalysis}</div>
+            ) : (
+              "No analysis available yet"
+            )}
           </ScrollArea>
         </CardContent>
       </Card>

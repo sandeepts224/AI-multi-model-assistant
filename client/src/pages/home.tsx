@@ -5,8 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export default function Home() {
   const [feedback, setFeedback] = useState<{
-    audioFeedback?: string;
-    screenFeedback?: string;
+    combinedAnalysis?: string;
   }>({});
 
   return (
@@ -19,10 +18,7 @@ export default function Home() {
         </CardContent>
       </Card>
 
-      <FeedbackDisplay
-        audioFeedback={feedback.audioFeedback}
-        screenFeedback={feedback.screenFeedback}
-      />
+      <FeedbackDisplay combinedAnalysis={feedback.combinedAnalysis} />
     </div>
   );
 }

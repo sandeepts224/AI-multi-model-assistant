@@ -1,48 +1,66 @@
-import type { Express } from "express";
-import { createServer, type Server } from "http";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import express from 'express';
+import fs from 'fs';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
 
-// Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+const router = express.Router();
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  const httpServer = createServer(app);
+// Initialize the model
+const genAI = new GoogleGenerativeAI(process.env.API_KEY || '');
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const fileManager = new GoogleAIFileManager(process.env.API_KEY || '');
 
-  app.post("/api/analyze", async (req, res) => {
+async function waitForFileProcessing(file: any) {
+  while (file.state === FileState.PROCESSING) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    file = await fileManager.getFile(file.name);
+  }
+  return file;
+}
+
+export function registerRoutes(app: express.Express) {
+  app.post('/api/analyze', async (req, res) => {
     try {
       const { audioBlob, screenBlob } = req.body;
 
-      // Analyze audio and screen content in parallel
-      const [audioResult, screenResult] = await Promise.allSettled([
-        model.generateContent({
-          contents: [{
-            parts: [{ text: `Analyze this customer service audio recording for tone, clarity, and professionalism: ${audioBlob}` }]
-          }]
-        }),
-        model.generateContent({
-          contents: [{
-            parts: [{ text: `Analyze this customer service screen recording for UI navigation and visual presentation: ${screenBlob}` }]
-          }]
-        })
+      // Process audio file
+      const audioUploadResult = await fileManager.uploadFile(Buffer.from(audioBlob, 'base64'), {
+        mimeType: 'audio/webm'
+      });
+      const processedAudioFile = await waitForFileProcessing(audioUploadResult.file);
+
+      // Process video file
+      const videoUploadResult = await fileManager.uploadFile(Buffer.from(screenBlob, 'base64'), {
+        mimeType: 'video/webm'
+      });
+      const processedVideoFile = await waitForFileProcessing(videoUploadResult.file);
+
+      // Combined analysis with both audio and video
+      const result = await model.generateContent([
+        "You are a helpful assistant analyzing a conversation from both audio and screen recording. First, analyze the audio to understand the user's query. Then, analyze the screen recording to identify relevant UI elements and actions. Provide a combined analysis summarizing the user's intent and the corresponding on-screen activity.",
+        {
+          fileData: {
+            fileUri: processedAudioFile.uri,
+            mimeType: processedAudioFile.mimeType,
+          },
+        },
+        {
+          fileData: {
+            fileUri: processedVideoFile.uri,
+            mimeType: processedVideoFile.mimeType,
+          },
+        }
       ]);
 
-      const feedback = {
-        audioFeedback: audioResult.status === 'fulfilled' ? 
-          (await audioResult.value.response.text()) : "Failed to analyze audio",
-        screenFeedback: screenResult.status === 'fulfilled' ? 
-          (await screenResult.value.response.text()) : "Failed to analyze screen recording"
-      };
-
-      res.json(feedback);
+      const combinedAnalysis = await result.response.text();
+      res.json({ combinedAnalysis });
     } catch (error) {
       console.error('Analysis error:', error);
       res.status(500).json({ 
-        message: "Failed to analyze recording",
-        error: error instanceof Error ? error.message : "Unknown error"
+        error: error instanceof Error ? error.message : 'An error occurred during analysis'
       });
     }
   });
 
-  return httpServer;
+  return router;
 }

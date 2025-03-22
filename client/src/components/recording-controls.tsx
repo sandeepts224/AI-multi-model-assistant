@@ -6,7 +6,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Monitor, Circle } from "lucide-react";
 
 interface RecordingControlsProps {
-  onFeedbackReceived: (feedback: { audioFeedback?: string; screenFeedback?: string }) => void;
+  onFeedbackReceived: (feedback: { combinedAnalysis?: string }) => void;
 }
 
 export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps) {
@@ -30,17 +30,14 @@ export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps
       newState.audioRecorder!.ondataavailable = (e) => audioChunks.push(e.data);
       newState.screenRecorder!.ondataavailable = (e) => screenChunks.push(e.data);
 
-      // Request data every second to keep chunks manageable
       newState.audioRecorder!.start(1000);
       newState.screenRecorder!.start(1000);
 
       newState.audioRecorder!.onstop = async () => {
         try {
-          // Process audio and screen data
           const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
           const screenBlob = new Blob(screenChunks, { type: 'video/webm' });
 
-          // Convert blobs to base64 strings
           const audioBase64 = await new Promise<string>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
@@ -53,14 +50,13 @@ export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps
             reader.readAsDataURL(screenBlob);
           });
 
-          // Send directly for analysis
           const response = await apiRequest('POST', '/api/analyze', {
             audioBlob: audioBase64.split(',')[1],
             screenBlob: screenBase64.split(',')[1]
           });
 
-          const feedback = await response.json();
-          onFeedbackReceived(feedback);
+          const data = await response.json();
+          onFeedbackReceived(data);
 
           toast({
             title: "Analysis complete",
