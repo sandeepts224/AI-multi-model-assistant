@@ -1,12 +1,17 @@
 import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { startRecording, stopRecording, type RecordingState } from "@/lib/recording";
-import { apiRequest } from "@/lib/queryClient";
-import { Monitor, Circle } from "lucide-react";
+import { 
+  startRecording, 
+  stopRecording, 
+  type RecordingState, 
+  stopAudioRecording, 
+  startAudioRecording 
+} from "@/lib/recording";
+import { Mic, MicOff, Circle } from "lucide-react";
 
 interface RecordingControlsProps {
-  onFeedbackReceived: (feedback: { combinedAnalysis?: string }) => void;
+  onFeedbackReceived: (a: any) => void;
 }
 
 export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps) {
@@ -15,77 +20,62 @@ export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps
     audioStream: null,
     screenStream: null,
     audioRecorder: null,
-    screenRecorder: null
+    screenRecorder: null,
   });
 
   const { toast } = useToast();
 
-  const handleStartRecording = useCallback(async () => {
+  const handleRecordingToggle = useCallback(async () => {
     try {
-      const newState = await startRecording();
-
-      let audioChunks: Blob[] = [];
-      let screenChunks: Blob[] = [];
-
-      newState.audioRecorder!.ondataavailable = (e) => audioChunks.push(e.data);
-      newState.screenRecorder!.ondataavailable = (e) => screenChunks.push(e.data);
-
-      newState.audioRecorder!.start(1000);
-      newState.screenRecorder!.start(1000);
-
-      newState.audioRecorder!.onstop = async () => {
-        try {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-          const screenBlob = new Blob(screenChunks, { type: 'video/webm' });
-
-          const audioBase64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(audioBlob);
-          });
-
-          const screenBase64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(screenBlob);
-          });
-
-          const response = await apiRequest('POST', '/api/analyze', {
-            audioBlob: audioBase64.split(',')[1],
-            screenBlob: screenBase64.split(',')[1]
-          });
-
-          const data = await response.json();
-          onFeedbackReceived(data);
-
-          toast({
-            title: "Analysis complete",
-            description: "AI feedback is ready"
-          });
-        } catch (error) {
-          console.error('Error analyzing recording:', error);
-          toast({
-            title: "Analysis failed",
-            description: error instanceof Error ? error.message : "Failed to analyze the recording",
-            variant: "destructive"
-          });
-        }
-      };
-
-      setRecordingState(newState);
-    } catch (error) {
-      console.error('Error starting recording:', error);
+      if (!recordingState.isRecording) {
+        const newState = await startRecording(recordingState);
+        setRecordingState(prev => ({ ...prev, ...newState, isRecording: true }));
+        toast({
+          title: "Recording started",
+          description: "Your screen is now being recorded.",
+        });
+      } else {
+        const newState = stopRecording(recordingState);
+        setRecordingState(prev => ({ ...prev, ...newState, isRecording: false }));
+        toast({
+          title: "Analyzing recording...",
+          description: "Your screen recording has stopped.",
+        });
+      }
+    } catch (error: any) {
       toast({
-        title: "Recording failed",
-        description: error instanceof Error ? error.message : "Failed to start recording",
-        variant: "destructive"
+        title: "Recording error",
+        description: error?.message || "An error occurred while toggling the recording.",
+        variant: "destructive",
       });
     }
-  }, [toast, onFeedbackReceived]);
-
-  const handleStopRecording = useCallback(() => {
-    setRecordingState(prev => stopRecording(prev));
-  }, []);
+  }, [recordingState, toast]);
+  
+  const handleMicToggle = async () => {
+    try {
+      if (!recordingState.audioRecorder || recordingState.audioRecorder.state !== "recording") {
+        const newState = await startAudioRecording(recordingState);
+        setRecordingState(newState);
+        toast({
+          title: "Audio recording started",
+          description: "Your microphone is now being recorded.",
+        });
+      } else {
+        const newState = stopAudioRecording(recordingState);
+        setRecordingState(newState);
+        toast({
+          title: "Analyzing audio recording...",
+          description: "Your microphone recording has stopped.",
+        });
+        
+      }
+    } catch (error: any) {
+      toast({
+        title: "Recording error",
+        description: error?.message || "An error occurred while toggling the microphone recording.",
+      });
+    }
+  };
 
   return (
     <div className="flex gap-4">
@@ -93,10 +83,9 @@ export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps
         variant="outline"
         size="lg"
         className="w-12 h-12 p-0"
-        onClick={handleStartRecording}
-        disabled={recordingState.isRecording}
+        onClick={handleMicToggle}
       >
-        <Monitor className="h-6 w-6" />
+        {recordingState.audioRecorder && recordingState.audioRecorder.state === "recording" ? <Mic className="h-6 w-6" color="#ff2600"/> : <MicOff className="h-6 w-6"/>}
       </Button>
 
       <Button
@@ -104,7 +93,7 @@ export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps
         className={`w-12 h-12 p-0 rounded-full transition-colors ${
           recordingState.isRecording ? "bg-red-500 hover:bg-red-600" : "bg-black hover:bg-gray-900"
         }`}
-        onClick={recordingState.isRecording ? handleStopRecording : handleStartRecording}
+        onClick={handleRecordingToggle}
       >
         <Circle className="h-6 w-6" fill={recordingState.isRecording ? "currentColor" : "none"} />
       </Button>
