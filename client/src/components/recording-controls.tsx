@@ -10,11 +10,7 @@ import {
 } from "@/lib/recording";
 import { Mic, MicOff, Circle } from "lucide-react";
 
-interface RecordingControlsProps {
-  onFeedbackReceived: (a: any) => void;
-}
-
-export function RecordingControls({ onFeedbackReceived }: RecordingControlsProps) {
+export function RecordingControls() {
   const [recordingState, setRecordingState] = useState<RecordingState>({
     isRecording: false,
     audioStream: null,

@@ -6,8 +6,23 @@ import { blobToBase64 } from "./utils";
 let previousAudioAnalysis = "";
 let previousScreenAnalysis = "";
 
+// Define the type for the analysis callback
+export type AnalysisCallback = (analysis: string, mediaType: "audio" | "video") => void;
+
+// Global variable to hold the callback
+let analysisCallback: AnalysisCallback | undefined;
+
+// External function to set the callback
+export function setAnalysisCallback(cb: AnalysisCallback): void {
+  analysisCallback = cb;
+}
+
+// Modified onAnalysisReceived to call the external callback
 function onAnalysisReceived(analysis: string, mediaType: "audio" | "video") {
   console.log(`Received analysis for ${mediaType}:`, analysis);
+  if (analysisCallback) {
+    analysisCallback(analysis, mediaType);
+  }
 }
 
 /************************************************
