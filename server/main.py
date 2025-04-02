@@ -1,7 +1,7 @@
 import os
 import base64
 import asyncio
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from google import genai
 from google.genai import types
@@ -22,7 +22,7 @@ app.add_middleware(
 load_dotenv()
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-MODEL_ID = "gemini-2.0-flash-lite"  # Update to a supported model if needed
+MODEL_ID = "gemini-2.0-flash-lite"
 
 def generate_response(prompt: str) -> str:
     """Synchronous function that generates a response using the Gemini API."""
@@ -59,12 +59,11 @@ async def analyze_combined(
     if not file.content_type.startswith("video/") and not file.content_type.startswith("audio/"):
         raise HTTPException(status_code=400, detail="Invalid file type. A combined recording is required.")
     try:
-        # Read file into memory and encode it as base64
         file_bytes = await file.read()
         file_base64 = base64.b64encode(file_bytes).decode("utf-8")
         
        # Define chunk size (number of characters)
-        CHUNK_SIZE = 1000000  # Increased chunk size for fewer iterations
+        CHUNK_SIZE = 4100000
         chunks = [file_base64[i:i+CHUNK_SIZE] for i in range(0, len(file_base64), CHUNK_SIZE)]
 
         final_analysis = previous_analysis or ""
@@ -80,7 +79,7 @@ async def analyze_combined(
             )
             loop = asyncio.get_running_loop()
             response_text = await loop.run_in_executor(None, generate_response, prompt)
-            final_analysis = response_text  # Update final analysis with the latest response
+            final_analysis = response_text
         
         return JSONResponse(content={"success": True, "analysis": final_analysis})
     except Exception as e:
