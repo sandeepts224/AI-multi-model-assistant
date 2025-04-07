@@ -1,9 +1,21 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "react-toastify";
+import { initPip, enterPip as pipEnter, exitPip as pipExit } from "./pip";
 
 const Recorder = ({ onAnalysisReceived }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [prevAnalysis, setPrevAnalysis] = useState("");
+  
+  const recordingActiveRef = useRef(false);
+
+  const enterPip = useCallback(async () => {
+    await pipEnter();
+  }, []);
+
+  const exitPip = useCallback(() => {
+    pipExit();
+  }, []);
+
   const mediaRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
@@ -37,6 +49,7 @@ const Recorder = ({ onAnalysisReceived }) => {
 
       mediaRecorderRef.current.start(5000); // 5-second timeslice
       setIsRecording(true);
+      recordingActiveRef.current = true;
       toast.dismiss(["micAccess", "screenShare"]);
       toast.success("Recording started.", { toastId: "recordingStarted" });
     } catch (error) {
@@ -45,24 +58,58 @@ const Recorder = ({ onAnalysisReceived }) => {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
+    recordingActiveRef.current = false;
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      // Stop all audio tracks
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      // Stop all screen share tracks
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      exitPip();
       toast.info("Recording stopped.", { toastId: "recordingStopped" });
     }
-  };
+  }, [isRecording, exitPip]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden" && recordingActiveRef.current) {
+        enterPip();
+      } else if (document.visibilityState === "visible" && recordingActiveRef.current) {
+        exitPip();
+      }
+    };
+
+    const handleBlur = () => {
+      if (recordingActiveRef.current) {
+        enterPip();
+      }
+    };
+    const handleFocus = () => {
+      if (recordingActiveRef.current && document.pictureInPictureElement) {
+        exitPip();
+      }
+    };
+  
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+  
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [enterPip, exitPip]);
+
+  useEffect(() => {
+    initPip(stopRecording);
+  }, [stopRecording]);
 
   const uploadChunk = async (chunkBlob) => {
-    toast.info("Analysing...", { toastId: "uploadingChunk" });
     try {
       const formData = new FormData();
       formData.append("file", chunkBlob, "chunk.webm");
@@ -78,7 +125,7 @@ const Recorder = ({ onAnalysisReceived }) => {
       const data = await response.json();
       toast.success("Analysis updated!", { toastId: "chunkAnalysisComplete" });
       setPrevAnalysis((prev) => {
-        const updated = prev + "\n" + data.analysis;
+        const updated = prev ? prev + "\n" + data.analysis : data.analysis;
         onAnalysisReceived(updated);
         return updated;
       });
@@ -92,14 +139,17 @@ const Recorder = ({ onAnalysisReceived }) => {
       <h2 className="text-4xl font-extrabold text-center mb-6 text-white">Live Recorder</h2>
       <div className="flex justify-center mb-6">
         {isRecording ? (
-          <button
-            onClick={stopRecording}
-            className="h-14 w-14 bg-red-600 text-white rounded-full flex items-center justify-center hover:bg-red-700 transition-all duration-300 shadow-lg"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-            </svg>
-          </button>
+          <>
+            <button
+              id="stopRecordingButton"
+              onClick={stopRecording}
+              className="h-14 w-14 bg-red-600 text-white rounded-full flex items-center justify-center hover:bg-red-700 transition-all duration-300 shadow-lg"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+            </button>
+          </>
         ) : (
           <button
             onClick={startRecording}
@@ -109,7 +159,6 @@ const Recorder = ({ onAnalysisReceived }) => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" />
             </svg>
-
           </button>
         )}
       </div>
