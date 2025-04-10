@@ -5,9 +5,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Uplo
 from fastapi.responses import JSONResponse
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 
 app = FastAPI()
 
@@ -19,7 +17,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-load_dotenv()
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 MODEL_ID = "gemini-2.0-flash-lite"
@@ -67,7 +64,6 @@ async def analyze_combined(
         chunks = [file_base64[i:i+CHUNK_SIZE] for i in range(0, len(file_base64), CHUNK_SIZE)]
 
         final_analysis = previous_analysis or ""
-        media_type = "audio" if file.content_type.startswith("audio/") else "video"
 
         for i, chunk in enumerate(chunks, start=1):
             print(f"Processing chunk {i}/{len(chunks)}")
