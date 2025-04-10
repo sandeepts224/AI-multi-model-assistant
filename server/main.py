@@ -10,6 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
+credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+if credentials_json:
+    creds_path = "/tmp/service-account.json"
+    with open(creds_path, "w") as f:
+        f.write(credentials_json)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+
 app = FastAPI()
 
 app.add_middleware(

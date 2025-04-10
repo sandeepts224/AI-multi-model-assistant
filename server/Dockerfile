@@ -11,7 +11,6 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the FastAPI application code.
-COPY gen-lang-client-0669243690-4211d9c8bdd8.json .
 COPY . .
 
 # Expose port 8000 (or use the environment variable)
