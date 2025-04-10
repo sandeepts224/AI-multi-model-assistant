@@ -1,13 +1,67 @@
+/* stylelint-disable at-rule-no-unknown */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  * {
-    @apply border-border;
-  }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
-  body {
-    @apply font-sans antialiased bg-background text-foreground;
-  }
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Hide until activated */
+canvas.pip-canvas {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 300px;
+  height: 300px;
+  background: black;
+  z-index: 9999;
+}
+video.pip-video {
+  display: none;
+  position: fixed;
+  top: 60px;
+  right: 15px;
+  width: 200px;
+  height: 200px;
+  background: black;
+  box-shadow: 0 0 15px 5px rgba(0,0,0,0.8);
+  z-index: 9999;
+}
+/* when PIP is active, show the hidden video */
+video.pip-video.pipactive {
+  display: block;
+}
+
+/* Your PiP toggle button styling */
+.pip-btn {
+  position: fixed;
+  bottom: 80px;
+  right: 15px;
+  width: 54px;
+  height: 54px;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--bgcolor2);
+  color: var(--color);
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  transition: background-color 0.2s;
+}
+.pip-btn:hover {
+  background-color: var(--coloraccent);
 }

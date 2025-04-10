@@ -1,112 +1,86 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
-from typing import Optional
 import os
 import base64
+import asyncio
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi.responses import JSONResponse
 from google import genai
-from google.genai.types import LiveConnectConfig, Modality
+from google.genai import types
 from dotenv import load_dotenv
-
-load_dotenv()
-
-PROJECT_ID = "[your-project-id]" 
-if not PROJECT_ID or PROJECT_ID == "[your-project-id]":
-    PROJECT_ID = str(os.environ.get("GOOGLE_CLOUD_PROJECT"))
-
-LOCATION = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
-client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
-MODEL_ID = "gemini-2.0-flash-exp"
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 app = FastAPI()
 
-class AnalyzeRequest(BaseModel):
-    audioBlob: Optional[str] = None
-    screenBlob: Optional[str] = None
-    previousAnalysis: Optional[str] = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/api/analyze")
-async def analyze_media(data: AnalyzeRequest):
-    if not data.audioBlob and not data.screenBlob:
-        raise HTTPException(status_code=400, detail="No audioBlob or screenBlob provided.")
-    try:
-        # Determine media type and decode file bytes
-        if data.audioBlob:
-            file_bytes = base64.b64decode(data.audioBlob)
-            temp_filename = "temp_audiofile.mp3"
-            media_type = "audio"
-        else:
-            file_bytes = base64.b64decode(data.screenBlob)
-            temp_filename = "temp_videofile.mp4"
-            media_type = "video"
+load_dotenv()
 
-        with open(temp_filename, "wb") as f:
-            f.write(file_bytes)
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+MODEL_ID = "gemini-2.0-flash-lite"
 
-        prompt = (
-            f"Describe this {media_type} file.\n\n"
-            f"Previous analysis: {data.previousAnalysis}\n\n"
-            f"File: {temp_filename}"
+def generate_response(prompt: str) -> str:
+    """Synchronous function that generates a response using the Gemini API."""
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=prompt)]
         )
+    ]
+    generate_content_config = types.GenerateContentConfig(
+        response_mime_type="text/plain",
+    )
+    response_text = ""
+    for chunk in client.models.generate_content_stream(
+        model=MODEL_ID,
+        contents=contents,
+        config=generate_content_config,
+    ):
+        response_text += chunk.text
+    return response_text
 
-        async with client.aio.live.connect(
-            model=MODEL_ID,
-            config=LiveConnectConfig(response_modalities=[Modality.TEXT]),
-        ) as session:
-            await session.send(input=prompt, end_of_turn=True)
-            response_lines = []
-            async for message in session.receive():
-                if message.text:
-                    response_lines.append(message.text)
-            final_response = "".join(response_lines)
+@app.post("/analyze")
+async def analyze_combined(
+    file: UploadFile = File(...),
+    previous_analysis: str = Form("")
+):
+    """
+    Accepts a combined screen recording (video) with audio from the browser.
+    The recording is expected in WebM format and is processed in memory.
+    The file is base64-encoded and then split into chunks. For each chunk, a prompt
+    is built instructing the model to analyze the events in that chunk, passing along
+    previous analysis for context. The responses are combined into a final analysis.
+    """
+    if not file.content_type.startswith("video/") and not file.content_type.startswith("audio/"):
+        raise HTTPException(status_code=400, detail="Invalid file type. A combined recording is required.")
+    try:
+        file_bytes = await file.read()
+        file_base64 = base64.b64encode(file_bytes).decode("utf-8")
+        
+       # Define chunk size (number of characters)
+        CHUNK_SIZE = 4100000
+        chunks = [file_base64[i:i+CHUNK_SIZE] for i in range(0, len(file_base64), CHUNK_SIZE)]
 
-        return {
-            "success": True,
-            "geminiAnalysis": final_response
-        }
+        final_analysis = previous_analysis or ""
+        media_type = "audio" if file.content_type.startswith("audio/") else "video"
+
+        for i, chunk in enumerate(chunks, start=1):
+            print(f"Processing chunk {i}/{len(chunks)}")
+            prompt = (
+                f"Summarize the following combined screen and audio recording chunk. "
+                "Return only a clear, concise summary of the events occurring in this chunk with no extra commentary. "
+                f"Previous analysis: {final_analysis}\n\n"
+                f"Chunk (base64, truncated): {chunk}..."
+            )
+            loop = asyncio.get_running_loop()
+            response_text = await loop.run_in_executor(None, generate_response, prompt)
+            final_analysis = response_text
+        
+        return JSONResponse(content={"success": True, "analysis": final_analysis})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.websocket("/ws/analyze")
-async def analyze_websocket(websocket: WebSocket):
-    await websocket.accept()
-    # try:
-    async with client.aio.live.connect(
-        model=MODEL_ID,
-        config=LiveConnectConfig(response_modalities=[Modality.TEXT]),
-    ) as session:
-        while True:
-            data = await websocket.receive_json()
-            await websocket.send_json({"test": "response received"})
-            # Expected data: { "mediaType": "audio" | "video", "chunk": "<base64_chunk>", "previousAnalysis": "..." }
-            media_type = data.get("mediaType")
-            previous_analysis = data.get("previousAnalysis", "")
-            chunk_base64 = data.get("chunk")
-            if not media_type or not chunk_base64:
-                await websocket.send_json({"error": "Invalid data"})
-                continue
-
-            filename = "temp_audio_chunk.mp3" if media_type == "audio" else "temp_video_chunk.mp4"
-            file_bytes = base64.b64decode(chunk_base64)
-            with open(filename, "wb") as f:
-                f.write(file_bytes)
-
-            prompt = (
-                f"Describe this {media_type} chunk.\n\n"
-                f"Previous analysis: {previous_analysis}\n\n"
-                f"File: {filename}"
-            )
-
-            await session.send(input=prompt, end_of_turn=True)
-            response_lines = []
-            async for message in session.receive():
-                if message.text:
-                    response_lines.append(message.text)
-            final_response = "".join(response_lines)
-            await websocket.send_json({
-                "geminiAnalysis": final_response,
-                "mediaType": media_type
-            })
-    # except WebSocketDisconnect:
-    #     print("WebSocket disconnected")
-    # except Exception as e:
-    #     await websocket.send_json({"error": str(e)})
