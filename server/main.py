@@ -5,7 +5,10 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Uplo
 from fastapi.responses import JSONResponse
 from google import genai
 from google.genai import types
+from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -16,7 +19,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 MODEL_ID = "gemini-2.0-flash-lite"
