@@ -105,7 +105,7 @@ const Recorder = ({ onAnalysisReceived }) => {
       formData.append("file", chunkBlob, "chunk.webm");
       formData.append("previous_analysis", prevAnalysis);
 
-      const response = await fetch("https://multi-modal-assistant.onrender.com/analyze", {
+      const response = await fetch("https://multi-modal-api-bycjdhehetaxg8ga.centralus-01.azurewebsites.net/analyze", {
         method: "POST",
         body: formData,
       });
