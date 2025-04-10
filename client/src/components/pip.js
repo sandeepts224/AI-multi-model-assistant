@@ -1,43 +1,27 @@
 let canvas = document.createElement("canvas");
-canvas.width = canvas.height = 100;
+canvas.width = canvas.height = 150;
 
 let pipWindow = null;
 let video = null;
 
-canvas.addEventListener("click", (event) => {
-  const rect = canvas.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
-
-  const buttonWidth = 120;
-  const buttonHeight = 60;
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  const buttonX = cx - buttonWidth / 2;
-  const buttonY = cy - buttonHeight / 2;
-
-  if (x >= buttonX && x <= buttonX + buttonWidth &&
-      y >= buttonY && y <= buttonY + buttonHeight) {
-    console.log("Button clicked!");
-    const mainStopBtn = window.top.document.getElementById("stopRecordingButton");
-    if (mainStopBtn) {
-      mainStopBtn.click();
-    }
+export async function enterPip() {  
+  if (pipWindow && !pipWindow.closed) {
+    return;
   }
-});
 
-export async function enterPip() {
   const parentWindow = window;
-  if ('documentPictureInPicture' in window) {
+  if ("documentPictureInPicture" in window) {
     try {
       pipWindow = await window.documentPictureInPicture.requestWindow({
         width: canvas.width,
-        height: canvas.height
+        height: canvas.height,
       });
 
       [...document.styleSheets].forEach((styleSheet) => {
         try {
-          const cssRules = [...styleSheet.cssRules].map(r => r.cssText).join("");
+          const cssRules = [...styleSheet.cssRules]
+            .map((r) => r.cssText)
+            .join("");
           const style = pipWindow.document.createElement("style");
           style.textContent = cssRules;
           pipWindow.document.head.appendChild(style);
@@ -54,33 +38,71 @@ export async function enterPip() {
       }
       pipWindow.document.body.appendChild(canvas);
 
-      const stopRecBtn = pipWindow.document.createElement("button");
-      stopRecBtn.id = "pipStopRecordingButton";
-      stopRecBtn.innerHTML = "&#9632;";
-      stopRecBtn.className =
-        "fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-full h-12 w-12 flex items-center justify-center focus:outline-none";
-      stopRecBtn.addEventListener("click", () => {
-        const mainStopBtn = parentWindow.document.getElementById("stopRecordingButton");
-        if (mainStopBtn) {
-          mainStopBtn.click();
-        }
-        parentWindow.focus();
-        exitPip();
-      });
-      pipWindow.document.body.appendChild(stopRecBtn);
+      let stopRecBtn = pipWindow.document.getElementById("pipStopBtn");
+      if (!stopRecBtn) {
+        stopRecBtn = pipWindow.document.createElement("button");
+        stopRecBtn.id = "pipStopBtn";
+        pipWindow.document.body.appendChild(stopRecBtn);
+      }
 
-      pipWindow.addEventListener("pagehide", () => {
-        exitPip();
-        pipWindow = null;
-      }, { once: true });
-      pipWindow.addEventListener("unload", () => {
-        exitPip();
-        pipWindow = null;
-      }, { once: true });
+      const updatePipButtonState = () => {
+        const startBtn = parentWindow.document.getElementById("startRecordingButton");
+        const stopBtn = parentWindow.document.getElementById("stopRecordingButton");
+        const isRecordingOnParent = stopBtn && stopBtn.offsetParent !== null;
+        const currentBtn = isRecordingOnParent ? stopBtn : startBtn;
+        if (currentBtn) {
+          stopRecBtn.className = currentBtn.className;
+          stopRecBtn.innerHTML = currentBtn.innerHTML;
+        }
+        // Center the button in the 150x150 PiP window
+        stopRecBtn.style.position = "absolute";
+        stopRecBtn.style.top = "50%";
+        stopRecBtn.style.left = "50%";
+        stopRecBtn.style.transform = "translate(-50%, -50%)";
+      };
+
+      updatePipButtonState();
+
+      // Update the PiP button state periodically so it remains in sync
+      const pipStateInterval = setInterval(updatePipButtonState, 300);
+
+      // When the PiP button is clicked, simulate a click on the corresponding parent's button.
+      stopRecBtn.onclick = () => {
+        const startBtn = parentWindow.document.getElementById("startRecordingButton");
+        const stopBtn = parentWindow.document.getElementById("stopRecordingButton");
+        const isRecordingOnParent = stopBtn && stopBtn.offsetParent !== null;
+        const currentBtn = isRecordingOnParent ? stopBtn : startBtn;
+        if (currentBtn) {
+          currentBtn.click();
+          // Allow parent's state change to propagate, then update
+          setTimeout(updatePipButtonState, 0);
+        }
+      };
+
+      // When the PiP window is closed manually, clear interval and clean up
+      pipWindow.addEventListener(
+        "pagehide",
+        () => {
+          clearInterval(pipStateInterval);
+          exitPip();
+          pipWindow = null;
+        },
+        { once: true }
+      );
+      pipWindow.addEventListener(
+        "unload",
+        () => {
+          clearInterval(pipStateInterval);
+          exitPip();
+          pipWindow = null;
+        },
+        { once: true }
+      );
     } catch (err) {
       console.warn("Document PiP failed:", err);
     }
   } else {
+    // Fallback for browsers without Document PiP support
     if (!video) {
       video = document.createElement("video");
       video.id = "pipFallbackVideo";
@@ -108,7 +130,7 @@ export function exitPip() {
     pipWindow.close();
     pipWindow = null;
   } else if (document.pictureInPictureElement) {
-    document.exitPictureInPicture().catch(err => {
+    document.exitPictureInPicture().catch((err) => {
       console.warn("Exit PiP failed:", err);
     });
   }
