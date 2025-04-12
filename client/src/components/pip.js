@@ -16,6 +16,9 @@ export async function enterPip() {
         width: canvas.width,
         height: canvas.height,
       });
+      
+      // Make the pip window accessible on the main window
+      window.pipWindow = pipWindow;
 
       [...document.styleSheets].forEach((styleSheet) => {
         try {
@@ -38,6 +41,31 @@ export async function enterPip() {
       }
       pipWindow.document.body.appendChild(canvas);
 
+      // Create a chatbox in the PiP window to display analysis updates
+      let pipChatBox = pipWindow.document.getElementById("pipChatBox");
+      if (!pipChatBox) {
+        pipChatBox = pipWindow.document.createElement("div");
+        pipChatBox.id = "pipChatBox";
+        // Style the chatbox (adjust as needed)
+        pipChatBox.style.position = "absolute";
+        pipChatBox.style.bottom = "0";
+        pipChatBox.style.width = "100%";
+        pipChatBox.style.maxHeight = "200px";
+        pipChatBox.style.overflowY = "auto";
+        pipChatBox.style.backgroundColor = "rgba(27, 22, 22, 0.8)";
+        pipChatBox.style.color = "white";
+        pipChatBox.style.padding = "10px";
+        pipChatBox.innerText = "No analysis available yet.";
+        pipWindow.document.body.appendChild(pipChatBox);
+      }
+
+      // Listen for analysis messages from the parent window
+      pipWindow.addEventListener("message", (event) => {
+        if (event.data && typeof event.data.analysis === "string") {
+          pipChatBox.innerText = event.data.analysis;
+        }
+      });
+
       let stopRecBtn = pipWindow.document.getElementById("pipStopBtn");
       if (!stopRecBtn) {
         stopRecBtn = pipWindow.document.createElement("button");
@@ -56,9 +84,9 @@ export async function enterPip() {
         }
         // Center the button in the 150x150 PiP window
         stopRecBtn.style.position = "absolute";
-        stopRecBtn.style.top = "50%";
+        stopRecBtn.style.top = "5%";
         stopRecBtn.style.left = "50%";
-        stopRecBtn.style.transform = "translate(-50%, -50%)";
+        stopRecBtn.style.transform = "translate( -50%)";
       };
 
       updatePipButtonState();

@@ -46,11 +46,10 @@ const Recorder = ({ onAnalysisReceived }) => {
         toast.error("Please start screen sharing first.");
         return;
       }
-      // Request microphone access
+// Request microphone access
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = audioStream;
 
-      // Combine audio stream with the already active screen share stream
       const combinedStream = new MediaStream([
         ...audioStream.getTracks(),
         ...screenStreamRef.current.getTracks(),
@@ -69,12 +68,11 @@ const Recorder = ({ onAnalysisReceived }) => {
       mediaRecorderRef.current.start(5000); // 5-second timeslice
       setIsRecording(true);
       recordingActiveRef.current = true;
-      toast.dismiss(["micAccess", "screenShare"]);
       toast.success("Recording started.", { toastId: "recordingStarted" });
 
-      if(!session){
+      if (!session) {
         session = true;
-        enterPip();
+        enterPip(prevAnalysis); // Pass the current analysis content to the PiP window
       }
     } catch (error) {
       console.error("Error starting recording:", error);

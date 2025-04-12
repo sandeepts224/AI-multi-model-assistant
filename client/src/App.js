@@ -7,6 +7,9 @@ function App() {
 
   const handleAnalysisReceived = (newAnalysis) => {
     setAnalysis(newAnalysis);
+    if (window.pipWindow) {
+      window.pipWindow.postMessage({ analysis: newAnalysis }, "*");
+    }
   };
 
   return (
