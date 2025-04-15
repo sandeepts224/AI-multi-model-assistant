@@ -38,14 +38,13 @@ def generate_response(system_message: str, user_message: str) -> str:
     generate_content_config = types.GenerateContentConfig(
         response_mime_type="text/plain",
     )
-    response_text = ""
-    for chunk in client.models.generate_content_stream(
+    # Use the non-streaming method to get the full response at once
+    response = client.models.generate_content(
         model=MODEL_ID,
         contents=contents,
         config=generate_content_config,
-    ):
-        response_text += chunk.text
-    return response_text
+    )
+    return response.text
 
 
 @app.post("/analyze")
@@ -67,13 +66,12 @@ async def analyze_combined(
 
         # Define system and user messages
         system_message = (
-            "You are an AI troubleshoot  assistant. Your task is to analyze the provided screen and audio recording "
-            "and listen what user is saying and refer the video content"
+            "You are an AI troubleshoot assistant. Your task is to analyze the provided screen and audio recording "
+            "and listen to what the user is saying and refer to the video content."
         )
         user_message = (
-            f"I need help on something I am working on. refer to the video content and listen audio and help me. "
+            f"I need help on something I am working on. Refer to the video content and listen to the audio and help me. "
             "Return only a clear, concise answer. "
-            #f"Previous analysis: {previous_analysis}\n\n"
             f"Recording (base64, truncated): {file_base64[:500]}..."  # Truncate for safety
         )
 

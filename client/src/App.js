@@ -3,10 +3,13 @@ import Recorder from "./components/Recorder";
 import FeedbackDisplay from "./components/FeedbackDisplay";
 
 function App() {
-  const [analysis, setAnalysis] = useState("");
+  const [sessions, setSessions] = useState([]); // Store analysis results for each session
 
   const handleAnalysisReceived = (newAnalysis) => {
-    setAnalysis(newAnalysis);
+    // Add the new analysis to the top of the sessions list
+    setSessions((prevSessions) => [newAnalysis, ...prevSessions]);
+
+    // Send the new analysis to the PiP window if available
     if (window.pipWindow) {
       window.pipWindow.postMessage({ analysis: newAnalysis }, "*");
     }
@@ -19,7 +22,7 @@ function App() {
       </h1>
       <div className="w-full max-w-3xl space-y-8">
         <Recorder onAnalysisReceived={handleAnalysisReceived} />
-        <FeedbackDisplay analysis={analysis} />
+        <FeedbackDisplay sessions={sessions} />
       </div>
     </div>
   );
