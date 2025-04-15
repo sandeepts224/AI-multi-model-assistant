@@ -10,12 +10,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
+credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+if credentials_json:
+    creds_path = "/tmp/service-account.json"
+    with open(creds_path, "w") as f:
+        f.write(credentials_json)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,9 +62,10 @@ async def analyze_combined(
     is built instructing the model to analyze the events in that chunk, passing along
     previous analysis for context. The responses are combined into a final analysis.
     """
-    if not file.content_type.startswith("video/") and not file.content_type.startswith("audio/"):
-        raise HTTPException(status_code=400, detail="Invalid file type. A combined recording is required.")
     try:
+        if not file.content_type.startswith("video/") and not file.content_type.startswith("audio/"):
+            raise HTTPException(status_code=400, detail="Invalid file type. A combined recording is required.")
+
         file_bytes = await file.read()
         file_base64 = base64.b64encode(file_bytes).decode("utf-8")
         
@@ -81,4 +89,5 @@ async def analyze_combined(
         
         return JSONResponse(content={"success": True, "analysis": final_analysis})
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=500, detail=str(e))

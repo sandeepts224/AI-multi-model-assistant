@@ -2,3 +2,5 @@ node_modules
 *.venv
 *.env
 __pycache__
+.vercel
+server/gen-lang-client-0669243690-4211d9c8bdd8.json
