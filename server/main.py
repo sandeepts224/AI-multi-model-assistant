@@ -73,7 +73,7 @@ async def analyze_combined(
         user_message = (
             f"I need help on something I am working on. refer to the video content and listen audio and help me. "
             "Return only a clear, concise answer. "
-            f"Previous analysis: {previous_analysis}\n\n"
+            #f"Previous analysis: {previous_analysis}\n\n"
             f"Recording (base64, truncated): {file_base64[:500]}..."  # Truncate for safety
         )
 
