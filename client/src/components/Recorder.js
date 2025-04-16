@@ -65,7 +65,7 @@ const Recorder = ({ onAnalysisReceived }) => {
         }
       };
 
-      mediaRecorderRef.current.start(5000); // 5-second timeslice
+      mediaRecorderRef.current.start(120000); // 5-second timeslice
       setIsRecording(true);
       recordingActiveRef.current = true;
       toast.success("Recording started.", { toastId: "recordingStarted" });
@@ -103,7 +103,7 @@ const Recorder = ({ onAnalysisReceived }) => {
       formData.append("file", chunkBlob, "chunk.webm");
       formData.append("previous_analysis", prevAnalysis);
 
-      const response = await fetch("https://multi-modal-assistant.onrender.com/analyze", {
+      const response = await fetch("http://127.0.0.1:8000/analyze", {
         method: "POST",
         body: formData,
       });
