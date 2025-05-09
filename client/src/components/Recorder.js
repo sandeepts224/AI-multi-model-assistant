@@ -7,22 +7,24 @@ const Recorder = ({ onAnalysisReceived }) => {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [prevAnalysis, setPrevAnalysis] = useState("");
   const recordingActiveRef = useRef(false);
-  let session = false;
+  const sessionRef = useRef(false);
 
   const enterPip = useCallback(async () => {
     await pipEnter();
   }, []);
 
-  const mediaRecorderRef = useRef(null);
+  const audioRecorderRef = useRef(null);
+  const videoRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+  const pendingAudioRef = useRef(null);
+  const pendingVideoRef = useRef(null);
 
   const startScreenShare = async () => {
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = screenStream;
       setIsScreenSharing(true);
-      toast.dismiss("screenShare");
       toast.success("Screen sharing started.", { toastId: "screenShareStarted" });
     } catch (error) {
       console.error("Error starting screen sharing:", error);
@@ -36,43 +38,51 @@ const Recorder = ({ onAnalysisReceived }) => {
       screenStreamRef.current = null;
       setIsScreenSharing(false);
       toast.info("Screen sharing stopped.", { toastId: "screenShareStopped" });
-      session = false;
+      sessionRef.current = false;
     }
   };
 
   const startRecording = async () => {
     try {
-      if (!isScreenSharing) {
+      if (!screenStreamRef.current) {
         toast.error("Please start screen sharing first.");
         return;
       }
-// Request microphone access
+
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = audioStream;
 
-      const combinedStream = new MediaStream([
-        ...audioStream.getTracks(),
-        ...screenStreamRef.current.getTracks(),
-      ]);
-
-      mediaRecorderRef.current = new MediaRecorder(combinedStream, {
-        mimeType: "video/webm;codecs=vp8,opus",
-      });
-
-      mediaRecorderRef.current.ondataavailable = async (event) => {
+      const audioMime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      audioRecorderRef.current = new MediaRecorder(audioStreamRef.current, { mimeType: audioMime });
+      audioRecorderRef.current.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
-          await uploadChunk(event.data);
+          pendingAudioRef.current = event.data;
+          tryUploadChunk();
         }
       };
+      audioRecorderRef.current.start(120000); // 2-minute timeslice for audio
 
-      mediaRecorderRef.current.start(120000); // 5-second timeslice
+      const videoMime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+        ? "video/webm;codecs=vp8,opus"
+        : "video/webm";
+      videoRecorderRef.current = new MediaRecorder(screenStreamRef.current, { mimeType: videoMime });
+      videoRecorderRef.current.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          pendingVideoRef.current = event.data;
+          tryUploadChunk();
+        }
+      };
+      videoRecorderRef.current.start(120000); // 2-minute timeslice for video
+
       setIsRecording(true);
       recordingActiveRef.current = true;
       toast.success("Recording started.", { toastId: "recordingStarted" });
 
-      if (!session) {
-        session = true;
-        enterPip(prevAnalysis); // Pass the current analysis content to the PiP window
+      if (!sessionRef.current) {
+        sessionRef.current = true;
+        enterPip(prevAnalysis);
       }
     } catch (error) {
       console.error("Error starting recording:", error);
@@ -82,25 +92,45 @@ const Recorder = ({ onAnalysisReceived }) => {
 
   const stopRecording = useCallback(() => {
     recordingActiveRef.current = false;
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach((track) => track.stop());
-        audioStreamRef.current = null;
-      }
-      toast.info("Recording stopped.", { toastId: "recordingStopped" });
+    if (audioRecorderRef.current && isRecording) {
+      audioRecorderRef.current.stop();
     }
+    if (videoRecorderRef.current && isRecording) {
+      videoRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
+    }
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
+    }
+    toast.info("Recording stopped.", { toastId: "recordingStopped" });
   }, [isRecording]);
 
   useEffect(() => {
     initPip();
   }, []);
 
-  const uploadChunk = async (chunkBlob) => {
+  // Try uploading when both audio and video chunks are available
+  const tryUploadChunk = async () => {
+    const audioBlob = pendingAudioRef.current;
+    const videoBlob = pendingVideoRef.current;
+    if (audioBlob && videoBlob) {
+      // Clear pending before upload
+      pendingAudioRef.current = null;
+      pendingVideoRef.current = null;
+      await uploadChunk(audioBlob, videoBlob);
+    }
+  };
+
+  const uploadChunk = async (audioBlob, videoBlob) => {
     try {
       const formData = new FormData();
-      formData.append("file", chunkBlob, "chunk.webm");
+      formData.append("audio_file", audioBlob, "audio-chunk.webm");
+      formData.append("video_file", videoBlob, "video-chunk.webm");
       formData.append("previous_analysis", prevAnalysis);
 
       const response = await fetch("http://127.0.0.1:8000/analyze", {
@@ -114,13 +144,33 @@ const Recorder = ({ onAnalysisReceived }) => {
       toast.success("Analysis updated!", { toastId: "chunkAnalysisComplete" });
       setPrevAnalysis((prev) => {
         const updated = prev ? prev + "\n" + data.analysis : data.analysis;
-        onAnalysisReceived(updated);
         return updated;
       });
     } catch (error) {
       toast.error("Error uploading chunk: " + error.message, { toastId: "uploadError" });
     }
   };
+
+  useEffect(() => {
+    onAnalysisReceived(prevAnalysis);
+  }, [prevAnalysis, onAnalysisReceived]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRecorderRef.current && audioRecorderRef.current.state !== "inactive") {
+        audioRecorderRef.current.stop();
+      }
+      if (videoRecorderRef.current && videoRecorderRef.current.state !== "inactive") {
+        videoRecorderRef.current.stop();
+      }
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   return (
     <div className="max-w-xl mx-auto p-8 bg-gray-800 rounded-lg shadow-2xl">
@@ -130,10 +180,10 @@ const Recorder = ({ onAnalysisReceived }) => {
           <button
             id="stopScreenShareButton"
             onClick={stopScreenShare}
-            className="h-14 w-14 bg-red-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 transition-all duration-300 shadow-lg"
+            className="h-14 w-14 bg-red-600 text-white rounded-full flex items-center justify-center hover:bg-red-700 transition-all duration-300 shadow-lg"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="size-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
             </svg>
           </button>
         ) : (
@@ -142,8 +192,8 @@ const Recorder = ({ onAnalysisReceived }) => {
             onClick={startScreenShare}
             className="h-14 w-14 bg-gray-600 text-white rounded-full flex items-center justify-center hover:bg-gray-700 transition-all duration-300 shadow-lg"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="size-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
             </svg>
           </button>
         )}
@@ -164,8 +214,8 @@ const Recorder = ({ onAnalysisReceived }) => {
             onClick={startRecording}
             className="h-14 w-14 bg-gray-600 text-white rounded-full flex items-center justify-center hover:bg-gray-700 transition-all duration-300 shadow-lg"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="size-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
             </svg>
 
           </button>
